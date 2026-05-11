@@ -77,23 +77,14 @@ Content-Type: application/json
 }
 ```
 
-### `set_appointment_time`
-
-```json
-{
-  "action": "set_appointment_time",
-  "conversation_id": "call_123456",
-  "aop_id": 12345,
-  "app_type": 1
-}
-```
-
 ### `get_patient_info`
 
 ```json
 {
   "action": "get_patient_info",
   "conversation_id": "call_123456",
+  "aop_id": 12345,
+  "app_type": 1,
   "identity_no": "11111111111",
   "father_name": "AHMET",
   "birth_date": "1989-05-10"

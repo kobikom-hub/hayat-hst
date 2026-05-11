@@ -139,6 +139,34 @@ function buildPatientPayload(body) {
   };
 }
 
+async function setAppointmentTime(session, config, body, { required = false } = {}) {
+  const hasAopId = body.aop_id !== undefined && body.aop_id !== null && body.aop_id !== '';
+  const hasAppType = body.app_type !== undefined && body.app_type !== null && body.app_type !== '';
+
+  if (!hasAopId && !hasAppType && !required) {
+    return null;
+  }
+
+  const aopId = requireField(body, 'aop_id');
+  const appType = requireField(body, 'app_type');
+
+  const response = await setVariables(session, {
+    baseUrl: config.baseUrl,
+    vars: 'aop_id|app_type',
+    vals: `${aopId}|${appType}`
+  });
+
+  if (response.status >= 400) {
+    throw new Error(`Hospital appointment selection failed with status ${response.status}`);
+  }
+
+  return {
+    aop_id: Number(aopId),
+    app_type: Number(appType),
+    result: normalizeStructuredData(response.data)
+  };
+}
+
 async function getPatientInfoWithCaptcha(session, config, body) {
   const identityNo = requireField(body, 'identity_no');
   const fatherName = requireField(body, 'father_name');
@@ -271,33 +299,21 @@ function actionHandlers(config) {
       };
     },
 
-    async set_appointment_time(session, body) {
-      const aopId = requireField(body, 'aop_id');
-      const appType = requireField(body, 'app_type');
-
-      const response = await setVariables(session, {
-        baseUrl: config.baseUrl,
-        vars: 'aop_id|app_type',
-        vals: `${aopId}|${appType}`
-      });
-
-      return {
-        aop_id: Number(aopId),
-        app_type: Number(appType),
-        result: normalizeStructuredData(response.data)
-      };
-    },
-
     async get_patient_info(session, body) {
+      const appointment = await setAppointmentTime(session, config, body, {
+        required: true
+      });
       const result = await getPatientInfoWithCaptcha(session, config, body);
 
       return {
         identity_no: body.identity_no,
+        appointment,
         result
       };
     },
 
     async create_patient(session, body) {
+      await setAppointmentTime(session, config, body);
       const payload = buildPatientPayload(body);
 
       const registerPage = await hospitalRequest(session, {
@@ -376,7 +392,9 @@ function actionHandlers(config) {
       };
     },
 
-    async get_appointment_approve(session) {
+    async get_appointment_approve(session, body) {
+      await setAppointmentTime(session, config, body);
+
       const response = await hospitalRequest(session, {
         baseUrl: config.baseUrl,
         path: '/appointment_approve.php'

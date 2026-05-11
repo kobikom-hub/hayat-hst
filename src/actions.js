@@ -50,12 +50,18 @@ function normalizeGender(value) {
   return normalized;
 }
 
-function formBody(payload) {
-  return new URLSearchParams(
-    Object.entries(payload)
-      .filter(([, value]) => value !== undefined && value !== null)
-      .map(([key, value]) => [key, String(value)])
-  ).toString();
+function normalizeGenderLabel(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+
+  if (normalized === 'E' || normalized === 'ERKEK') {
+    return 'ERKEK';
+  }
+
+  if (normalized === 'K' || normalized === 'KADIN') {
+    return 'KADIN';
+  }
+
+  return normalized;
 }
 
 function normalizeAppointmentDay(value) {
@@ -77,6 +83,7 @@ function getBirthDateParts(value) {
   if (isoDateMatch) {
     return {
       birth_date: `${isoDateMatch[1]}-${isoDateMatch[2].padStart(2, '0')}-${isoDateMatch[3].padStart(2, '0')}`,
+      dotted_birth_date: `${isoDateMatch[3].padStart(2, '0')}.${isoDateMatch[2].padStart(2, '0')}.${isoDateMatch[1]}`,
       birth_day: Number(isoDateMatch[3]),
       birth_month: Number(isoDateMatch[2]),
       birth_year: Number(isoDateMatch[1])
@@ -86,6 +93,7 @@ function getBirthDateParts(value) {
   if (dottedDateMatch) {
     return {
       birth_date: `${dottedDateMatch[3]}-${dottedDateMatch[2].padStart(2, '0')}-${dottedDateMatch[1].padStart(2, '0')}`,
+      dotted_birth_date: `${dottedDateMatch[1].padStart(2, '0')}.${dottedDateMatch[2].padStart(2, '0')}.${dottedDateMatch[3]}`,
       birth_day: Number(dottedDateMatch[1]),
       birth_month: Number(dottedDateMatch[2]),
       birth_year: Number(dottedDateMatch[3])
@@ -96,31 +104,37 @@ function getBirthDateParts(value) {
 }
 
 function buildPatientPayload(body) {
-  const gender = normalizeGender(requireField(body, 'gender'));
+  const gender = normalizeGenderLabel(requireField(body, 'gender'));
   const phone = asTenDigitPhone(requireField(body, 'phone'));
+  const birthDate = getBirthDateParts(requireField(body, 'birth_date'));
 
   return {
-    identity_no: requireField(body, 'identity_no'),
-    name: requireField(body, 'name'),
-    surname: requireField(body, 'surname'),
-    gender,
-    birth_date: requireField(body, 'birth_date'),
-    father_name: requireField(body, 'father_name'),
-    mother_name: requireField(body, 'mother_name'),
-    phone,
-    city_id: requireField(body, 'city_id'),
-    county_id: body.county_id,
-    association_id: requireField(body, 'association_id'),
+    hd_patient_type: body.patient_type || 1,
     fr_identity_no: requireField(body, 'identity_no'),
+    fr_passport: body.passport || '',
     fr_name: requireField(body, 'name'),
     fr_surname: requireField(body, 'surname'),
-    fr_gender: gender,
-    fr_birth_date: requireField(body, 'birth_date'),
+    fr_sexuality_view: gender,
+    fr_sexuality: gender,
+    fr_birth_date: birthDate.dotted_birth_date,
     fr_father_name: requireField(body, 'father_name'),
     fr_mother_name: requireField(body, 'mother_name'),
-    fr_phone: phone,
-    fr_city_id: requireField(body, 'city_id'),
-    fr_county_id: body.county_id,
+    fr_mp_country_code: body.mobile_country_code || 127,
+    fr_mobile_phone: phone,
+    fr_hp_country_code: body.home_country_code || '',
+    fr_home_phone: body.home_phone || '',
+    fr_wp_country_code: body.work_country_code || '',
+    fr_work_phone: body.work_phone || '',
+    fr_email: body.email || '',
+    fr_city_view: body.city_name || '',
+    fr_city: requireField(body, 'city_id'),
+    fr_cn_id_view: body.county_name || '',
+    fr_cn_id: body.county_id || '',
+    fr_quarter_name: body.quarter_name || '',
+    fr_address: body.address || '',
+    fr_outer_door_no: body.outer_door_no || '',
+    fr_inner_door_no: body.inner_door_no || '',
+    fr_association_id_view: body.association_name || '',
     fr_association_id: requireField(body, 'association_id')
   };
 }
@@ -286,18 +300,27 @@ function actionHandlers(config) {
     async create_patient(session, body) {
       const payload = buildPatientPayload(body);
 
-      const response = await hospitalRequest(session, {
-        method: 'POST',
+      const registerPage = await hospitalRequest(session, {
         baseUrl: config.baseUrl,
-        path: '/insert_patient.php',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        data: formBody(payload)
+        path: '/new_patient_register.php'
       });
 
+      if (registerPage.status >= 400) {
+        throw new Error(`Hospital patient register page failed with status ${registerPage.status}`);
+      }
+
+      const response = await hospitalRequest(session, {
+        baseUrl: config.baseUrl,
+        path: '/insert_patient.php',
+        query: payload
+      });
+
+      if (response.status >= 400) {
+        throw new Error(`Hospital patient insert request failed with status ${response.status}`);
+      }
+
       return {
-        identity_no: payload.identity_no,
+        identity_no: body.identity_no,
         result: normalizeStructuredData(response.data)
       };
     },

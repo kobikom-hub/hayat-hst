@@ -58,6 +58,43 @@ function formBody(payload) {
   ).toString();
 }
 
+function normalizeAppointmentDay(value) {
+  const day = String(value).trim();
+  const isoDateMatch = day.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!isoDateMatch) {
+    return day;
+  }
+
+  return `${isoDateMatch[3]}.${isoDateMatch[2]}.${isoDateMatch[1]}`;
+}
+
+function getBirthDateParts(value) {
+  const birthDate = String(value).trim();
+  const isoDateMatch = birthDate.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const dottedDateMatch = birthDate.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+
+  if (isoDateMatch) {
+    return {
+      birth_date: `${isoDateMatch[1]}-${isoDateMatch[2].padStart(2, '0')}-${isoDateMatch[3].padStart(2, '0')}`,
+      birth_day: Number(isoDateMatch[3]),
+      birth_month: Number(isoDateMatch[2]),
+      birth_year: Number(isoDateMatch[1])
+    };
+  }
+
+  if (dottedDateMatch) {
+    return {
+      birth_date: `${dottedDateMatch[3]}-${dottedDateMatch[2].padStart(2, '0')}-${dottedDateMatch[1].padStart(2, '0')}`,
+      birth_day: Number(dottedDateMatch[1]),
+      birth_month: Number(dottedDateMatch[2]),
+      birth_year: Number(dottedDateMatch[3])
+    };
+  }
+
+  throw new Error('birth_date must be YYYY-MM-DD or DD.MM.YYYY');
+}
+
 function buildPatientPayload(body) {
   const gender = normalizeGender(requireField(body, 'gender'));
   const phone = asTenDigitPhone(requireField(body, 'phone'));
@@ -91,7 +128,7 @@ function buildPatientPayload(body) {
 async function getPatientInfoWithCaptcha(session, config, body) {
   const identityNo = requireField(body, 'identity_no');
   const fatherName = requireField(body, 'father_name');
-  const birthDate = requireField(body, 'birth_date');
+  const birthDate = getBirthDateParts(requireField(body, 'birth_date'));
 
   let lastResponse = null;
 
@@ -101,10 +138,16 @@ async function getPatientInfoWithCaptcha(session, config, body) {
       baseUrl: config.baseUrl,
       path: '/get_patient_info.php',
       query: {
+        hd_father_name: 1,
+        hd_birth_date: 1,
         hd_patient_type: 1,
         fr_identity_no: identityNo,
+        fr_passport: body.passport || '',
         fr_father_name: fatherName,
-        fr_birth_date: birthDate,
+        fr_birth_date: birthDate.birth_date,
+        fr_birth_day: birthDate.birth_day,
+        fr_birth_month: birthDate.birth_month,
+        fr_birth_year: birthDate.birth_year,
         fr_secure_code: captcha.text
       }
     });
@@ -190,7 +233,7 @@ function actionHandlers(config) {
     async get_appointment_time(session, body) {
       const doctorId = requireField(body, 'doctor_id');
       const deptId = requireField(body, 'dept_id');
-      const day = requireField(body, 'day');
+      const day = normalizeAppointmentDay(requireField(body, 'day'));
 
       const response = await hospitalRequest(session, {
         baseUrl: config.baseUrl,
@@ -201,6 +244,10 @@ function actionHandlers(config) {
           day
         }
       });
+
+      if (response.status >= 400) {
+        throw new Error(`Hospital appointment time request failed with status ${response.status}`);
+      }
 
       return {
         doctor_id: doctorId,

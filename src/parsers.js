@@ -104,6 +104,35 @@ function normalizeStructuredData(raw) {
   return raw.trim();
 }
 
+function numberOrNull(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseAppointmentTimeRows(rows) {
+  let currentDay = null;
+
+  return rows
+    .map((row) => {
+      if (row.day) {
+        currentDay = stripHtml(row.day);
+      }
+
+      return {
+        day: currentDay,
+        label: row.time || '',
+        time: row.time || '',
+        aop_id: numberOrNull(row.aop_id),
+        app_type: numberOrNull(row.app_type)
+      };
+    })
+    .filter((row) => row.time || row.aop_id !== null);
+}
+
 function parseAppointmentTimeResponse(raw) {
   const normalized = normalizeStructuredData(raw);
 
@@ -119,6 +148,10 @@ function parseAppointmentTimeResponse(raw) {
         app_type: appTypeMatch ? Number(appTypeMatch[1]) : null
       };
     });
+  }
+
+  if (normalized && typeof normalized === 'object' && Array.isArray(normalized.Rows)) {
+    return parseAppointmentTimeRows(normalized.Rows);
   }
 
   if (typeof normalized !== 'string') {
